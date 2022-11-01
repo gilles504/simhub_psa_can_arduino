@@ -18,6 +18,13 @@ static const uint32_t FREQUENCE_DU_QUARTZ = 8ul * 1000ul * 1000ul;
 
 static const uint32_t FREQUENCE_DU_BUS_CAN = 125ul * 1000ul;
 
+// end of custom fields
+
+// information for PSA CAN codes : https://autowp.github.io
+// using library : https://github.com/pierremolinaro/acan2515
+
+
+
 CANMessage messageCANEmission;
 CANMessage messageCANReception;
 
@@ -44,8 +51,8 @@ void my_setup()
   // ALL Magical stuff to let Combo think that engine is running
   messageCANEmission.id = 0x036 ; 
   messageCANEmission.len = 8 ;
-  messageCANEmission.data32[0]=0x0E00003F;
-  messageCANEmission.data32[1]=0x010000A0;
+  messageCANEmission.data32[0]=0x3F00000E;
+  messageCANEmission.data32[1]=0x0A000010;
   
   controleurCAN.tryToSend(messageCANEmission);
 
@@ -101,6 +108,7 @@ void my_PSAreceive(){
 class SHCustomProtocol {
 private:
   int speed=0;
+  int rpm=0;
 public:
 
   /*
@@ -133,8 +141,9 @@ void setup() {
 
 // Called when new data is coming from computer
   void read() {
-    speed = FlowSerialReadStringUntil('\n').toInt();
-    FlowSerialDebugPrintLn("Message received : " + String(speed));
+    speed = FlowSerialReadStringUntil(';').toInt();
+    rpm = FlowSerialReadStringUntil('\n').toInt();
+    FlowSerialDebugPrintLn("Message received : " + String(speed) + ";" + String(rpm));
   }
 
   // Called once per arduino loop, timing can't be predicted, 
@@ -143,19 +152,42 @@ void setup() {
   // PSA combo needs to resend data on a regular basis
   void loop() {
     uint32_t my_speed=speed*100;
+    uint32_t my_rpm=rpm;
+
+    // read CAN input (and discard)
     my_PSAreceive();
 
+    // send vital periodic messages
     messageCANEmission.id = 0x0F6 ;
     messageCANEmission.len = 8 ;
     messageCANEmission.data32[0]=0x0000008A;
     messageCANEmission.data32[1]=0x00000000;
     controleurCAN.tryToSend(messageCANEmission);
 
+/*
+0B6
+MMMMMMMM MMMMM
+Tachometer: turns per minute of motor
+000
+SSSSSSSS SSSSSSSS
+Actual speed * 100 in km/h
+
+TTTTTTTT TTTTTTTT
+Odometer from start, cm
+
+FFFFFFFF
+Fuel consumtion, counter
+ 11010000
+  */
+
     messageCANEmission.id = 0x0B6 ;
     messageCANEmission.len = 8 ;
     messageCANEmission.data32[0]=0x00000000;
     messageCANEmission.data32[0]|=(my_speed&0xFF00)<<8;
     messageCANEmission.data32[0]|=(my_speed&0xFF)<<24;
+
+    messageCANEmission.data32[0]|=((my_rpm<<3)&0xFF00)>>8;
+    messageCANEmission.data32[0]|=((my_rpm<<3)&0xFF)<<8;
 
     messageCANEmission.data32[1]=0xD0000000;
     controleurCAN.tryToSend(messageCANEmission);
